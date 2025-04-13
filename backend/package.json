@@ -5,6 +5,8 @@
   "main": "index.js",
   "types": "module",
   "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -19,5 +21,8 @@
     "express": "^5.1.0",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.13.2"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
   }
 }
