@@ -5,7 +5,7 @@ config(); // Load environment variables
 
 // Connect to MongoDB
 try {
-  await mongoose.connect(process.env.MONGODB_URI || 'mongodb://localhost:27017/cloudwallet');
+  await mongoose.connect(process.env.MONGODB_URI);
   console.log('Connected to MongoDB successfully');
 } catch (error) {
   console.error('MongoDB connection error:', error);

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Connection, LAMPORTS_PER_SOL, PublicKey, SystemProgram, Transaction } from '@solana/web3.js';
+import { PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import axios from 'axios';
 import './App.css';
 
@@ -17,10 +17,7 @@ const App = () => {
   const [token, setToken] = useState('');
   const [view, setView] = useState('login'); // login, signup, dashboard
 
-  const connection = new Connection('https://solana-devnet.g.alchemy.com/v2/OmpV8pByLQt4GL68rAeSLc9iKtIgy7ly');
-
   useEffect(() => {
-    // Check if token exists in localStorage
     const savedToken = localStorage.getItem('token');
     const savedPublicKey = localStorage.getItem('publicKey');
     
@@ -34,7 +31,7 @@ const App = () => {
 
   const fetchBalance = async (address) => {
     try {
-      const response = await axios.get(`http://localhost:3000/api/v1/balance/${address}`);
+      const response = await axios.get(`${import.meta.env.VITE_API_URL}/api/v1/balance/${address}`);
       setBalance(response.data.balance);
     } catch (error) {
       console.error('Error fetching balance:', error);
@@ -47,7 +44,7 @@ const App = () => {
     setLoading(true);
     setError('');
     try {
-      const response = await axios.post('http://localhost:3000/api/v1/signup', { email, password });
+      const response = await axios.post(`${import.meta.env.VITE_API_URL}/api/v1/signup`, { email, password });
       setSuccessMessage('Account created successfully! Please log in.');
       setView('login');
     } catch (error) {
@@ -63,10 +60,9 @@ const App = () => {
     setLoading(true);
     setError('');
     try {
-      const response = await axios.post('http://localhost:3000/api/v1/signin', { email, password });
+      const response = await axios.post(`${import.meta.env.VITE_API_URL}/api/v1/signin`, { email, password });
       const { token, publicKey } = response.data;
       
-      // Save to localStorage
       localStorage.setItem('token', token);
       localStorage.setItem('publicKey', publicKey);
       
@@ -103,49 +99,36 @@ const App = () => {
     setSuccessMessage('');
 
     try {
-      // Validate recipient address
-      const toPublicKey = new PublicKey(recipientAddress);
-      const fromPublicKey = new PublicKey(publicKey);
+      new PublicKey(recipientAddress);
       
-      // Create transaction
-      const transaction = new Transaction().add(
-        SystemProgram.transfer({
-          fromPubkey: fromPublicKey,
-          toPubkey: toPublicKey,
-          lamports: parseFloat(amount) * LAMPORTS_PER_SOL
-        })
-      );
-
-      transaction.recentBlockhash = ((await connection.getLatestBlockhash()).blockhash);
-      transaction.feePayer = fromPublicKey;
-
-      const serializedTransaction = transaction.serialize({
-        requireAllSignatures: false,
-        verifySignatures: false
-      });
+      const lamports = Math.floor(parseFloat(amount) * LAMPORTS_PER_SOL);
       
-      const bs64Txn = Buffer.from(serializedTransaction).toString('base64');
-
-      // Send to backend for signing
-      const response = await axios.post("http://localhost:3000/api/v1/txn/sign", 
-        { message: bs64Txn },
+      const response = await axios.post(
+        `${import.meta.env.VITE_API_URL}/api/v1/txn/sign`,
+        {
+          message: {
+            to: recipientAddress,
+            amount: lamports
+          }
+        },
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
       if (response.data.signature) {
         setSuccessMessage(`Transaction successful! Signature: ${response.data.signature}`);
-        // Refresh balance after transaction
-        fetchBalance(publicKey);
+        setTimeout(() => fetchBalance(publicKey), 2000); 
       }
     } catch (error) {
-      console.error('Transaction error:', error);
-      setError(error.response?.data?.msg || 'Failed to send SOL. Please check the recipient address and try again.');
+      const errorMessage = error.response?.data?.error || 
+                          error.response?.data?.msg || 
+                          error.message || 
+                          'Failed to send SOL. Please check the recipient address and try again.';
+      setError(errorMessage);
     } finally {
       setLoading(false);
     }
   };
 
-  // Render login form
   const renderLogin = () => (
     <div className="auth-container">
       <h2>Login to Your Wallet</h2>
@@ -183,7 +166,6 @@ const App = () => {
     </div>
   );
 
-  // Render signup form
   const renderSignup = () => (
     <div className="auth-container">
       <h2>Create a Wallet</h2>
@@ -220,7 +202,6 @@ const App = () => {
     </div>
   );
 
-  // Render wallet dashboard
   const renderDashboard = () => (
     <div className="dashboard-container">
       <h2>Your Solana Wallet</h2>
@@ -287,7 +268,7 @@ const App = () => {
         {isLoggedIn ? renderDashboard() : view === 'login' ? renderLogin() : renderSignup()}
       </main>
       <footer>
-        <p>&copy; {new Date().getFullYear()} Cloud Wallet - Powered by Solana</p>
+        <p>&copy; {new Date().getFullYear()} Cloud Wallet - Powered by Varun</p>
       </footer>
     </div>
   );

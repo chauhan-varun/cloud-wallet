@@ -1,4 +1,4 @@
-import { Connection, Keypair, Transaction, PublicKey } from '@solana/web3.js';
+import { Connection, Keypair, PublicKey, SystemProgram, Transaction } from '@solana/web3.js';
 import express from 'express';
 import { userModel } from "./db.js";
 import jwt from 'jsonwebtoken';
@@ -11,11 +11,10 @@ config();
 const app = express();
 app.use(express.json());
 app.use(cors());
-const connection = new Connection("https://solana-devnet.g.alchemy.com/v2/OmpV8pByLQt4GL68rAeSLc9iKtIgy7ly");
+const connection = new Connection(process.env.RPC_URL);
 
 app.post("/api/v1/signup", async (req, res) => {
     try {
-        // check if user exists or not 
         const email = req.body.email;
         const password = req.body.password;
         
@@ -43,7 +42,6 @@ app.post("/api/v1/signup", async (req, res) => {
             publicKey
         });
     } catch (error) {
-        console.error('Signup error:', error);
         res.status(500).json({
             msg: 'Server error during signup'
         });
@@ -86,41 +84,98 @@ app.post("/api/v1/signin", async (req, res) => {
 
 // Middleware to verify JWT token
 const authenticateToken = (req, res, next) => {
-    const authHeader = req.headers['authorization'];
-    const token = authHeader && authHeader.split(' ')[1];
-    
-    if (!token) return res.status(401).json({ msg: 'Authentication required' });
-    
-    jwt.verify(token, process.env.JWT_SECRET || 'fallback_secret_key', (err, user) => {
-        if (err) return res.status(403).json({ msg: 'Invalid or expired token' });
-        req.user = user;
-        next();
-    });
-};
-
-app.post("/api/v1/txn/sign", authenticateToken, async (req, res) => {
     try {
-        const bufferTransaction = Buffer.from(req.body.message, 'base64');
-        const transaction = Transaction.from(bufferTransaction);
-
-        const keypair = Keypair.fromSecretKey(bs58.decode(process.env.PRIVATE_KEY || "4KgdLv9TLFyxjC1petDbvJoVZ8VcDQxpZYu4VcYQRWVkWsKVww2xGwKpALpZwmm1U1M3Z9Eq1UQYLpA1ETdm4nBs"));
+        const authHeader = req.headers['authorization'];
+        const token = authHeader && authHeader.split(' ')[1];
         
-        transaction.recentBlockhash = ((await connection.getLatestBlockhash()).blockhash);
-        transaction.feePayer = keypair.publicKey;
-        transaction.sign(keypair);
-
-        const signature = await connection.sendTransaction(transaction, [keypair]);
-        console.log("Transaction signature:", signature);
+        if (!token) {
+            console.log("No token provided");
+            return res.status(401).json({ msg: 'Authentication required' });
+        }
         
-        res.json({
-            signature,
-            success: true
+        jwt.verify(token, process.env.JWT_SECRET || 'fallback_secret_key', (err, user) => {
+            if (err) {
+                console.log("Token verification error:", err);
+                return res.status(403).json({ msg: 'Invalid or expired token' });
+            }
+            req.user = user;
+            next();
         });
     } catch (error) {
-        console.error('Transaction signing error:', error);
-        res.status(500).json({
-            msg: 'Failed to sign and send transaction',
-            error: error.message
+        console.error("Authentication error:", error);
+        return res.status(500).json({ msg: 'Server error during authentication' });
+    }
+};
+
+// Transaction signing endpoint
+app.post("/api/v1/txn/sign", authenticateToken, async (req, res) => {
+    try {
+        if (!req.body.message || typeof req.body.message !== 'object') {
+            return res.status(400).json({ error: "Invalid transaction data format" });
+        }
+        
+        // Get user from database
+        const user = await userModel.findById(req.user.id);
+        if (!user) {
+            return res.status(404).json({ error: "User not found" });
+        }
+        
+        // Get user's keypair from database
+        const userPrivateKey = user.privateKey;
+        
+        if (!userPrivateKey) {
+            return res.status(400).json({ error: "User doesn't have a private key" });
+        }
+        
+        const { to, amount } = req.body.message;
+        
+        if (!to || !amount) {
+            return res.status(400).json({ error: "Missing 'to' address or 'amount'" });
+        }
+        
+        try {
+            const decodedKey = bs58.decode(userPrivateKey);
+            const keypair = Keypair.fromSecretKey(decodedKey);
+            
+            // Parse recipient address
+            const toPublicKey = new PublicKey(to);
+            
+            // Create transaction
+            const transaction = new Transaction().add(
+                SystemProgram.transfer({
+                    fromPubkey: keypair.publicKey,
+                    toPubkey: toPublicKey,
+                    lamports: amount
+                })
+            );
+            
+            // Get recent blockhash and add to transaction
+            const { blockhash } = await connection.getLatestBlockhash();
+            transaction.recentBlockhash = blockhash;
+            transaction.feePayer = keypair.publicKey;
+            
+            // Sign transaction
+            transaction.sign(keypair);
+            
+            // Send transaction
+            const signature = await connection.sendTransaction(transaction, [keypair]);
+            console.log("Transaction signature:", signature);
+            
+            return res.json({
+                signature,
+                success: true
+            });
+        } catch (err) {
+            console.error("Error processing transaction:", err);
+            return res.status(500).json({
+                error: "Transaction processing error",
+                details: err.message
+            });
+        }
+    } catch (error) {
+        console.error('Transaction error details:', error);
+        return res.status(500).json({
+            error: error.message || 'Unknown server error'
         });
     }
 });
@@ -144,12 +199,6 @@ app.get("/api/v1/balance/:address", async (req, res) => {
         });
     }
 });
-
-app.post("/api/v1/txn", (req, res)=>{
-    res.json({
-        msg: 'txn'
-    })
-})
 
 app.listen(3000, () => {
     console.log('Server is running on port 3000');
